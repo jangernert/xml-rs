@@ -14,7 +14,6 @@ pub use self::events::XmlEvent;
 use self::parser::PullParser;
 
 use encoding::EncodingRef;
-use encoding::all::UTF_8;
 use encoding::label::encoding_from_whatwg_label;
 use encoding::types::DecoderTrap;
 
@@ -33,7 +32,7 @@ pub type Result<T> = result::Result<T, Error>;
 pub struct EventReader<R: Read> {
     source: R,
     parser: PullParser,
-    encoding: EncodingRef,
+    encoding: Option<EncodingRef>,
 }
 
 impl<R: Read> EventReader<R> {
@@ -46,7 +45,7 @@ impl<R: Read> EventReader<R> {
     /// Creates a new reader with the provded configuration, consuming the given stream.
     #[inline]
     pub fn new_with_config(source: R, config: ParserConfig) -> EventReader<R> {
-        EventReader { source: source, parser: PullParser::new(config), encoding: UTF_8 }
+        EventReader { source: source, parser: PullParser::new(config), encoding: None }
     }
 
     /// Pulls and returns next XML event from the stream.
@@ -60,11 +59,17 @@ impl<R: Read> EventReader<R> {
             // Get the encoding of the document
             XmlEvent::StartDocument {version, encoding, standalone } => {
                 if let Some(encoding) = encoding_from_whatwg_label(&encoding) {
-                    self.encoding = encoding;
+                    if encoding.name() != "utf-8" {
+                        self.encoding = Some(encoding);
+                    }
                 }
                 XmlEvent::StartDocument {version, encoding, standalone }
             }
-            XmlEvent::Characters(text) => XmlEvent::Characters(self.encoding.decode(text.as_bytes(), DecoderTrap::Strict).unwrap()),
+            XmlEvent::Characters(text) => XmlEvent::Characters(
+                match self.encoding {
+                    Some(encoding) => encoding.decode(text.as_bytes(), DecoderTrap::Strict).unwrap(),
+                    None => text,
+                }),
             _ => event,
         };
         Ok(event)
